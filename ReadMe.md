@@ -84,7 +84,7 @@ pip install -r requirements.txt
 # Place credentials.json in project root
 
 # Run the application
-python dirvecopy.py
+python dirveManager.py
 ```
 
 ## 🔑 Prerequisites
