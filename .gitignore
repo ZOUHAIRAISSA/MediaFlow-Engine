@@ -1,0 +1,140 @@
+# ===========================================
+# MediaFlow Engine - Git Ignore File
+# ===========================================
+
+# 🔐 Google API Credentials & Tokens
+credentials.json
+token.json
+token.pickle
+*.json
+!package.json
+!requirements.json
+
+# 🗂️ Cache & Temporary Files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 🎬 Media Files (Optional - uncomment if needed)
+# *.mp4
+# *.mov
+# *.avi
+# *.mkv
+# *.heic
+# *.jpg
+# *.jpeg
+# *.png
+# *.gif
+
+# 📊 Data Files
+*.csv
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.sqlite3
+
+# 🛠️ IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 🐍 Python Specific
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# 📦 PyInstaller
+*.manifest
+*.spec
+
+# 🔧 Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 📝 Logs
+*.log
+logs/
+log/
+
+# 🗃️ OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 🚀 Deployment
+deploy/
+deployment/
+*.exe
+*.msi
+*.dmg
+
+# 📋 Project Specific
+# Uncomment these if you want to ignore specific project files
+# config.ini
+# settings.json
+# user_preferences.json
+
+# 🧪 Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# 📚 Documentation Build
+docs/_build/
+site/
+
+# 🔄 Backup Files
+*.bak
+*.backup
+*.tmp
+*.temp
