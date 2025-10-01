@@ -1,0 +1,15 @@
+# Dépendances Python pour MediaFlow Engine
+# ==========================================
+
+# Traitement d'images et vidéos
+Pillow>=9.0.0
+pillow-heif>=0.10.0
+mutagen>=1.45.0
+
+# APIs Google
+google-api-python-client>=2.0.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=0.5.0
+
+# Interface utilisateur (Windows uniquement)
+pywin32>=227; sys_platform == "win32"
