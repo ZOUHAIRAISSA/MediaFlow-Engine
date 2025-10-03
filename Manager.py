@@ -13,6 +13,7 @@ Fonctionnalités :
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+from threading import Thread
 import os
 import zipfile
 import tempfile
@@ -422,8 +423,8 @@ class ModernGoogleDriveApp(tk.Tk):
         # Onglet 4: Traitement Vidéos
         self.create_video_processing_tab()
         
-        # # Onglet 5: Traitement des Images
-        # self.create_image_processing_tab()
+        # Onglet 5: Traitement des Images
+        self.create_image_processing_tab()
         
         # Onglet 6: Configuration
         self.create_config_tab()
@@ -663,9 +664,514 @@ class ModernGoogleDriveApp(tk.Tk):
         self.notebook.add(video_frame, text="🎬 Traitement Vidéos")
 
         # Intégrer directement l'interface BatchProcessorFrame
-        from batchprocessorCopy import BatchProcessorFrame
+        from batchprocessor import BatchProcessorFrame
         embedded = BatchProcessorFrame(video_frame)
         embedded.pack(fill='both', expand=True)
+
+    def create_image_processing_tab(self):
+        """Créer l'onglet de traitement des images"""
+        image_frame = ttk.Frame(self.notebook, style='Modern.TFrame')
+        self.notebook.add(image_frame, text="🎨 Traitement Images")
+
+        # Intégrer directement l'interface ImageEnhancerApp
+        try:
+            from enhance_canva_like import ImageEnhancerApp
+            # Créer une instance de ImageEnhancerApp mais sans appeler mainloop()
+            self.image_enhancer = ImageEnhancerApp()
+            # Détruire la fenêtre principale créée par ImageEnhancerApp
+            self.image_enhancer.destroy()
+            
+            # Créer un nouveau frame pour intégrer dans notre notebook
+            self.image_enhancer_frame = ttk.Frame(image_frame, style='Modern.TFrame')
+            self.image_enhancer_frame.pack(fill='both', expand=True)
+            
+            # Recréer l'interface dans notre frame
+            self._create_image_enhancer_interface()
+            
+        except ImportError as e:
+            # Si le module n'est pas trouvé, afficher un message d'erreur
+            error_label = ttk.Label(image_frame, 
+                                  text=f"Erreur: Impossible d'importer enhance_canva_like.py\n{e}", 
+                                  style='Modern.TLabel')
+            error_label.pack(expand=True)
+        except Exception as e:
+            # Autre erreur
+            error_label = ttk.Label(image_frame, 
+                                  text=f"Erreur lors du chargement de l'interface:\n{e}", 
+                                  style='Modern.TLabel')
+            error_label.pack(expand=True)
+
+    def _create_image_enhancer_interface(self):
+        """Créer l'interface ImageEnhancer dans notre frame"""
+        # Copier les widgets de l'ImageEnhancerApp vers notre frame
+        parent_frame = self.image_enhancer_frame
+        
+        # Variables
+        self.input_folder_var = tk.StringVar()
+        self.output_folder_var = tk.StringVar()
+        self.csv_path_var = tk.StringVar()
+        self.resize_width_var = tk.StringVar()
+        self.preset_var = tk.StringVar(value="none")
+        
+        # Canva preset parameters (using existing values from code)
+        self.brightness_var = tk.DoubleVar(value=1.03)
+        self.contrast_var = tk.DoubleVar(value=1.06)
+        self.color_var = tk.DoubleVar(value=1.08)
+        self.sharpness_var = tk.DoubleVar(value=1.08)
+        self.gamma_var = tk.DoubleVar(value=0.98)
+        self.r_gain_var = tk.DoubleVar(value=1.02)
+        self.g_gain_var = tk.DoubleVar(value=1.00)
+        self.b_gain_var = tk.DoubleVar(value=0.98)
+        
+        # Processing state
+        self._stop_requested = False
+        self._worker = None
+        
+        # Créer les widgets
+        self._create_image_widgets(parent_frame)
+        
+        # Initial message
+        self._append_image("🎨 Bienvenue dans l'Image Enhancer avec intégration CSV!")
+        self._append_image("📂 Sélectionnez le dossier parent, le dossier de sortie et le fichier CSV.")
+        self._append_image("⚙️ Optionnel: spécifiez une largeur de redimensionnement.")
+        self._append_image("🚀 Cliquez sur 'Démarrer le traitement' pour commencer.\n")
+
+    def _create_image_widgets(self, parent):
+        """Créer tous les widgets de l'interface image"""
+        # Main title
+        title_frame = ttk.Frame(parent)
+        title_frame.pack(fill="x", padx=10, pady=10)
+        title_label = ttk.Label(title_frame, text="🎨 Traitement d'images", 
+                               font=("Arial", 16, "bold"))
+        title_label.pack()
+        
+        # Paths section
+        paths_frame = ttk.LabelFrame(parent, text="📂 Chemins")
+        paths_frame.pack(fill="x", padx=10, pady=8)
+        
+        self._row_path_image(paths_frame, "Dossier parent (sous-dossiers):", self.input_folder_var, self.browse_input_image)
+        self._row_path_image(paths_frame, "Dossier de sortie:", self.output_folder_var, self.browse_output_image)
+        self._row_path_image(paths_frame, "Fichier CSV:", self.csv_path_var, self.browse_csv_image)
+        
+        # Options section
+        options_frame = ttk.LabelFrame(parent, text="⚙️ Options")
+        options_frame.pack(fill="x", padx=10, pady=8)
+        
+        self._row_entry_image(options_frame, "Largeur de redimensionnement:", self.resize_width_var)
+        
+        # Preset section
+        preset_frame = ttk.LabelFrame(parent, text="🎨 Presets d'amélioration")
+        preset_frame.pack(fill="x", padx=10, pady=8)
+        
+        # Preset selection
+        preset_row = ttk.Frame(preset_frame)
+        preset_row.pack(fill="x", padx=8, pady=4)
+        
+        ttk.Label(preset_row, text="Preset:", width=15).pack(side="left")
+        preset_combo = ttk.Combobox(preset_row, textvariable=self.preset_var, 
+                                   values=["none", "canva"], state="readonly", width=15)
+        preset_combo.pack(side="left", padx=6)
+        preset_combo.bind("<<ComboboxSelected>>", self._on_preset_change_image)
+        
+        # Canva preset parameters (initially hidden)
+        self.canva_params_frame = ttk.LabelFrame(preset_frame, text="Paramètres Canva")
+        
+        # Create parameter rows
+        self._row_scale_image(self.canva_params_frame, "Luminosité:", self.brightness_var, 0.5, 2.0, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Contraste:", self.contrast_var, 0.5, 2.0, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Couleur:", self.color_var, 0.5, 2.0, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Netteté:", self.sharpness_var, 0.5, 2.0, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Gamma:", self.gamma_var, 0.5, 1.5, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Gain Rouge:", self.r_gain_var, 0.5, 1.5, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Gain Vert:", self.g_gain_var, 0.5, 1.5, 0.01)
+        self._row_scale_image(self.canva_params_frame, "Gain Bleu:", self.b_gain_var, 0.5, 1.5, 0.01)
+        
+        # Control buttons
+        control_frame = ttk.Frame(parent)
+        control_frame.pack(fill="x", padx=10, pady=8)
+        
+        self.start_btn_image = ttk.Button(control_frame, text="🚀 Démarrer le traitement", 
+                                   command=self.start_processing_image, style='Success.TButton')
+        self.start_btn_image.pack(side="left", padx=5)
+        
+        self.stop_btn_image = ttk.Button(control_frame, text="⏹️ Arrêter", 
+                                  command=self.stop_processing_image, state="disabled", style='Danger.TButton')
+        self.stop_btn_image.pack(side="left", padx=5)
+        
+        # Log section
+        log_frame = ttk.LabelFrame(parent, text="📋 Journal")
+        log_frame.pack(fill="both", expand=True, padx=10, pady=8)
+        
+        self.log_text_image = tk.Text(log_frame, height=15, bg="#1f1f1f", fg="#eaeaea", 
+                               insertbackground="#eaeaea", borderwidth=0, highlightthickness=0)
+        self.log_text_image.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Now that log_text is created, we can call _on_preset_change
+        self._on_preset_change_image()
+
+    def _row_path_image(self, parent, label, var, command):
+        """Create a row with label, entry and browse button"""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=8, pady=4)
+        
+        ttk.Label(row, text=label, width=25).pack(side="left")
+        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(row, text="Parcourir…", command=command).pack(side="left")
+    
+    def _row_entry_image(self, parent, label, var, placeholder=""):
+        """Create a row with label and entry"""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=8, pady=4)
+        
+        ttk.Label(row, text=label, width=25).pack(side="left")
+        entry = ttk.Entry(row, textvariable=var)
+        entry.pack(side="left", fill="x", expand=True, padx=6)
+        if placeholder:
+            entry.insert(0, placeholder)
+        return entry
+    
+    def _row_scale_image(self, parent, label, var, from_, to_, resolution=0.01):
+        """Create a row with label and scale"""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=8, pady=3)
+        
+        ttk.Label(row, text=label, width=15).pack(side="left")
+        val_lbl = ttk.Label(row, text=str(var.get()))
+        val_lbl.pack(side="right")
+        
+        scale = ttk.Scale(
+            row, from_=from_, to=to_, variable=var, orient="horizontal",
+            command=lambda v: val_lbl.config(
+                text=f"{float(v):.2f}" if resolution != 1 else f"{int(float(v))}"
+            )
+        )
+        scale.pack(side="left", fill="x", expand=True, padx=6)
+        return scale
+    
+    def _on_preset_change_image(self, event=None):
+        """Handle preset selection change"""
+        preset = self.preset_var.get()
+        if preset == "canva":
+            self.canva_params_frame.pack(fill="x", padx=8, pady=4)
+            self._append_image("🎨 Preset 'canva' sélectionné - Paramètres ajustables affichés")
+        else:
+            self.canva_params_frame.pack_forget()
+            self._append_image("🎨 Preset 'none' sélectionné - Aucune amélioration appliquée")
+    
+    def _append_image(self, text):
+        """Append text to image log"""
+        self.log_text_image.insert("end", text + "\n")
+        self.log_text_image.see("end")
+        self.update_idletasks()
+    
+    def browse_input_image(self):
+        """Browse for input parent folder"""
+        folder = filedialog.askdirectory(title="Choisir le dossier parent (contenant les sous-dossiers)")
+        if folder:
+            self.input_folder_var.set(folder)
+            self._append_image(f"📂 Dossier parent sélectionné: {folder}")
+    
+    def browse_output_image(self):
+        """Browse for output folder"""
+        folder = filedialog.askdirectory(title="Choisir le dossier de sortie")
+        if folder:
+            self.output_folder_var.set(folder)
+            self._append_image(f"📁 Dossier de sortie sélectionné: {folder}")
+    
+    def browse_csv_image(self):
+        """Browse for CSV file"""
+        file_path = filedialog.askopenfilename(
+            title="Choisir le fichier CSV",
+            filetypes=[("Fichiers CSV", "*.csv"), ("Tous les fichiers", "*.*")]
+        )
+        if file_path:
+            self.csv_path_var.set(file_path)
+            self._append_image(f"📄 Fichier CSV sélectionné: {file_path}")
+            
+            # Load and preview CSV data
+            try:
+                from enhance_canva_like import read_csv_data
+                csv_data = read_csv_data(file_path)
+                if csv_data:
+                    self._append_image(f"✅ CSV chargé: {len(csv_data)} entrées trouvées")
+                    self._append_image("📋 Aperçu des données CSV:")
+                    sample = list(csv_data.items())[:3]  # Show first 3 entries
+                    for sku_orig, row in sample:
+                        sku_kyopa = row.get('sku kyopa', '')
+                        title = row.get('title', '')
+                        tags = row.get('tags', '')
+                        self._append_image(f"  • '{sku_orig}' → SKU: '{sku_kyopa}'")
+                        self._append_image(f"    Titre: '{title}'")
+                        self._append_image(f"    Tags: '{tags}'")
+                else:
+                    self._append_image("⚠️ Aucune donnée valide trouvée dans le CSV")
+            except Exception as e:
+                self._append_image(f"⚠️ Erreur lors du chargement du CSV: {e}")
+    
+    def start_processing_image(self):
+        """Start the image processing"""
+        input_folder = self.input_folder_var.get().strip()
+        output_folder = self.output_folder_var.get().strip()
+        csv_path = self.csv_path_var.get().strip()
+        resize_width_str = self.resize_width_var.get().strip()
+        
+        # Validation
+        if not input_folder or not output_folder or not csv_path:
+            messagebox.showerror("Erreur", "Veuillez sélectionner tous les chemins requis:\n• Dossier parent\n• Dossier de sortie\n• Fichier CSV")
+            return
+        
+        if not os.path.isdir(input_folder):
+            messagebox.showerror("Erreur", f"Le dossier parent '{input_folder}' n'existe pas ou n'est pas un dossier.")
+            return
+        
+        if not Path(csv_path).exists():
+            messagebox.showerror("Erreur", f"Le fichier CSV '{csv_path}' n'existe pas.")
+            return
+        
+        # Parse resize width
+        resize_width = None
+        if resize_width_str:
+            try:
+                resize_width = int(resize_width_str)
+            except ValueError:
+                messagebox.showerror("Erreur", "La largeur de redimensionnement doit être un nombre entier.")
+                return
+        
+        # Update UI
+        self.start_btn_image.config(state="disabled")
+        self.stop_btn_image.config(state="normal")
+        self._stop_requested = False
+        
+        self._append_image("\n" + "="*60)
+        self._append_image("🚀 DÉMARRAGE DU TRAITEMENT")
+        self._append_image("="*60)
+        self._append_image(f"📂 Dossier parent: {input_folder}")
+        self._append_image(f"📁 Dossier de sortie: {output_folder}")
+        self._append_image(f"📄 Fichier CSV: {csv_path}")
+        if resize_width:
+            self._append_image(f"📏 Largeur de redimensionnement: {resize_width}px")
+        self._append_image("")
+        
+        # Get preset selection
+        preset = self.preset_var.get()
+        
+        # Start processing in background thread
+        def worker():
+            try:
+                self._run_processing_image(input_folder, output_folder, csv_path, resize_width, preset)
+            except Exception as e:
+                self._append_image(f"❌ Erreur inattendue: {e}")
+            finally:
+                self.start_btn_image.config(state="normal")
+                self.stop_btn_image.config(state="disabled")
+                self._append_image("\n🎉 Traitement terminé!")
+        
+        self._worker = Thread(target=worker, daemon=True)
+        self._worker.start()
+    
+    def _run_processing_image(self, input_folder, output_folder, csv_path, resize_width, preset):
+        """Run the actual image processing"""
+        try:
+            from enhance_canva_like import (
+                read_csv_data, convert_and_enhance, remove_metadata_from_folder,
+                set_metadata_with_exiftool, clean_filename
+            )
+            
+            # Load CSV data
+            self._append_image("📄 Chargement des données CSV...")
+            csv_data = read_csv_data(csv_path)
+            if not csv_data:
+                self._append_image("❌ Erreur: Aucune donnée valide trouvée dans le fichier CSV")
+                return
+            
+            self._append_image(f"✅ CSV chargé: {len(csv_data)} entrées trouvées")
+            self._append_image(f"🎨 Preset sélectionné: {preset}")
+            
+            if preset == "canva":
+                self._append_image("📊 Paramètres Canva:")
+                self._append_image(f"  - Luminosité: {self.brightness_var.get():.2f}")
+                self._append_image(f"  - Contraste: {self.contrast_var.get():.2f}")
+                self._append_image(f"  - Couleur: {self.color_var.get():.2f}")
+                self._append_image(f"  - Netteté: {self.sharpness_var.get():.2f}")
+                self._append_image(f"  - Gamma: {self.gamma_var.get():.2f}")
+                self._append_image(f"  - Gain Rouge: {self.r_gain_var.get():.2f}")
+                self._append_image(f"  - Gain Vert: {self.g_gain_var.get():.2f}")
+                self._append_image(f"  - Gain Bleu: {self.b_gain_var.get():.2f}")
+            
+            input_path = Path(input_folder)
+            output_path = Path(output_folder)
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            # Find all subfolders
+            subfolders = [f for f in input_path.iterdir() if f.is_dir()]
+            
+            if not subfolders:
+                self._append_image("❌ Aucun sous-dossier trouvé dans le dossier parent!")
+                return
+            
+            self._append_image(f"📂 {len(subfolders)} sous-dossiers trouvés:")
+            for i, subfolder in enumerate(subfolders, 1):
+                self._append_image(f"  {i}. {subfolder.name}")
+            self._append_image("")
+            
+            # Process each subfolder
+            total_processed = 0
+            total_failed = 0
+            processed_folders = []
+            failed_folders = []
+            csv_matched_folders = []
+            csv_unmatched_folders = []
+            
+            for i, subfolder in enumerate(subfolders, 1):
+                if self._stop_requested:
+                    self._append_image("⏹️ Arrêt demandé par l'utilisateur")
+                    break
+                    
+                self._append_image(f"🔄 Traitement du sous-dossier {i}/{len(subfolders)}: {subfolder.name}")
+                
+                # Look for CSV match
+                subfolder_name_lower = subfolder.name.strip().lower()
+                csv_match = csv_data.get(subfolder_name_lower)
+                
+                if csv_match:
+                    self._append_image(f"✅ Correspondance CSV trouvée pour '{subfolder.name}'")
+                    csv_title = csv_match.get('title', '').strip()
+                    csv_sku_kyopa = csv_match.get('sku kyopa', '').strip()
+                    csv_tags = csv_match.get('tags', '').strip()
+                    
+                    self._append_image(f"📋 Données CSV:")
+                    self._append_image(f"  - Titre: '{csv_title}'")
+                    self._append_image(f"  - SKU Kyopa: '{csv_sku_kyopa}'")
+                    self._append_image(f"  - Tags: '{csv_tags}'")
+                    
+                    output_folder_name = csv_sku_kyopa if csv_sku_kyopa else subfolder.name
+                    csv_matched_folders.append(subfolder.name)
+                else:
+                    self._append_image(f"⚠️ Aucune correspondance CSV trouvée pour '{subfolder.name}' - utilisation du nom original")
+                    output_folder_name = subfolder.name
+                    csv_title = ""
+                    csv_tags = ""
+                    csv_unmatched_folders.append(subfolder.name)
+                
+                # Create output subfolder
+                output_subfolder = output_path / output_folder_name
+                output_subfolder.mkdir(parents=True, exist_ok=True)
+                self._append_image(f"📁 Dossier de sortie: {output_subfolder}")
+                
+                # Step 1: Convert and enhance
+                self._append_image("🔄 Étape 1: Conversion et amélioration des images...")
+                
+                # Prepare canva parameters if preset is canva
+                canva_params = None
+                if preset == "canva":
+                    canva_params = {
+                        'brightness': self.brightness_var.get(),
+                        'contrast': self.contrast_var.get(),
+                        'color': self.color_var.get(),
+                        'sharpness': self.sharpness_var.get(),
+                        'gamma': self.gamma_var.get(),
+                        'r_gain': self.r_gain_var.get(),
+                        'g_gain': self.g_gain_var.get(),
+                        'b_gain': self.b_gain_var.get()
+                    }
+                
+                enhanced_folder = convert_and_enhance(str(subfolder), str(output_subfolder), resize_width, preset=preset, canva_params=canva_params)
+                
+                if enhanced_folder and Path(enhanced_folder).exists():
+                    self._append_image(f"✅ Étape 1 terminée pour '{subfolder.name}'!")
+                    
+                    # Step 2: Remove metadata
+                    self._append_image("🗑️ Étape 2: Suppression des métadonnées...")
+                    result = remove_metadata_from_folder(enhanced_folder, self._append_image)
+                    
+                    if result["success"]:
+                        self._append_image(f"✅ Suppression des métadonnées terminée!")
+                        self._append_image(f"🗑️ Métadonnées supprimées de {result['processed_count']} fichiers")
+                        
+                        # Step 3: Apply CSV metadata and rename
+                        if csv_match and csv_title:
+                            self._append_image("📄 Étape 3: Application des métadonnées CSV et renommage...")
+                            
+                            # Process tags
+                            if csv_tags:
+                                tags = [t.strip() for t in (csv_tags.split(",") if ',' in csv_tags else csv_tags.split()) if t.strip()]
+                            else:
+                                tags = []
+                            
+                            # Clean title for filename
+                            safe_title = clean_filename(csv_title)
+                            
+                            # Find all JPEG files and rename them
+                            jpeg_files = list(Path(enhanced_folder).glob("*.jpg")) + list(Path(enhanced_folder).glob("*.jpeg"))
+                            
+                            processed_images = 0
+                            for j, jpeg_file in enumerate(jpeg_files, 1):
+                                try:
+                                    # Create new filename with sequential number
+                                    new_filename = f"{safe_title}_{j}.jpg"
+                                    new_path = Path(enhanced_folder) / new_filename
+                                    
+                                    # Rename the file
+                                    jpeg_file.rename(new_path)
+                                    self._append_image(f"📝 Renommé: {jpeg_file.name} -> {new_filename}")
+                                    
+                                    # Set metadata using ExifTool
+                                    success = set_metadata_with_exiftool(new_path, csv_title, tags, "5", self._append_image)
+                                    
+                                    if success:
+                                        self._append_image(f"✅ Métadonnées appliquées: {new_filename}")
+                                        processed_images += 1
+                                    else:
+                                        self._append_image(f"⚠️ Échec de l'application des métadonnées: {new_filename}")
+                                        
+                                except Exception as e:
+                                    self._append_image(f"❌ Erreur lors du traitement de {jpeg_file.name}: {e}")
+                            
+                            self._append_image(f"✅ Métadonnées CSV appliquées à {processed_images} images")
+                        else:
+                            self._append_image(f"ℹ️ Aucune donnée CSV à appliquer pour '{subfolder.name}'")
+                        
+                        total_processed += result['processed_count']
+                        processed_folders.append(subfolder.name)
+                    else:
+                        self._append_image(f"⚠️ Problème avec la suppression des métadonnées pour '{subfolder.name}', mais la conversion a réussi.")
+                        total_failed += 1
+                        failed_folders.append(subfolder.name)
+                else:
+                    self._append_image(f"❌ Étape 1 échouée pour '{subfolder.name}'!")
+                    total_failed += 1
+                    failed_folders.append(subfolder.name)
+                
+                self._append_image("-" * 40)
+            
+            # Final summary
+            self._append_image("\n🎉 TRAITEMENT PAR LOTS TERMINÉ!")
+            self._append_image("📊 Résumé:")
+            self._append_image(f"  📂 Total des sous-dossiers traités: {len(subfolders)}")
+            self._append_image(f"  ✅ Traités avec succès: {len(processed_folders)}")
+            self._append_image(f"  ❌ Échoués: {len(failed_folders)}")
+            self._append_image(f"  🖼️ Total des images traitées: {total_processed}")
+            self._append_image(f"  📄 Dossiers avec correspondance CSV: {len(csv_matched_folders)}")
+            self._append_image(f"  ⚠️ Dossiers sans correspondance CSV: {len(csv_unmatched_folders)}")
+            
+            if csv_matched_folders:
+                self._append_image(f"\n✅ Dossiers avec correspondance CSV:")
+                for folder in csv_matched_folders:
+                    self._append_image(f"  - {folder}")
+            
+            if csv_unmatched_folders:
+                self._append_image(f"\n⚠️ Dossiers sans correspondance CSV:")
+                for folder in csv_unmatched_folders:
+                    self._append_image(f"  - {folder}")
+                    
+        except Exception as e:
+            self._append_image(f"❌ Erreur lors du traitement: {e}")
+    
+    def stop_processing_image(self):
+        """Stop the image processing"""
+        self._stop_requested = True
+        self._append_image("⏹️ Arrêt demandé... Le traitement s'arrêtera après le fichier en cours.")
+        messagebox.showinfo("Info", "Le traitement s'arrêtera après avoir terminé le fichier en cours.")
 
     def open_video_processor(self):
         """Lancer l'outil de traitement vidéo (EXE si dispo, sinon script)."""
