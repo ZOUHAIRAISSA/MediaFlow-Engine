@@ -646,6 +646,91 @@ def process_one(src: Path, dst_root: Path, root: Path, args, log_print):
     except Exception as e:
         log_print(f"[ERROR] Erreur inattendue pour {src}: {e}")
 
+#process one for image
+# def process_image_one(src: Path, dst_root: Path, root: Path, args, log_print):
+#     rel = src.relative_to(root)
+
+#     csv_data = args.get("csv_data", {})
+#     folder_name = (rel.parts[0] if rel.parts else "").strip().lower()
+#     csv_row = csv_data.get(folder_name, {}) or {}
+
+#     # Fallback: طابق بالاسم إذا ما لقاهاش بالفولدر
+#     if not csv_row:
+#         stem = src.stem.strip().lower()
+#         if stem in csv_data:
+#             csv_row = csv_data[stem]
+
+#     csv_sku_kyopa = (csv_row.get('sku kyopa', '') or "").strip()
+#     csv_title = (csv_row.get('title', '') or "").strip()
+#     csv_tags  = (csv_row.get('tags', '') or "").strip()
+
+#     title = csv_title or args.get("title") or src.stem
+
+#     def clean_filename(name):
+#         invalid = '<>:"/\\|?*'
+#         for ch in invalid: name = name.replace(ch, "_")
+#         return (name or "image").rstrip(" .")[:150]
+
+#     safe_filename = clean_filename(title)
+
+#     # نخرّجو JPG باش الـRating/Keywords يبانوا مزيان فـExplorer
+#     out_ext = ".jpg"
+#     if csv_sku_kyopa:
+#         out_folder = dst_root / csv_sku_kyopa
+#         out = out_folder / (safe_filename + out_ext)
+#     else:
+#         out = (dst_root / rel.parent / (safe_filename + out_ext))
+
+#     safe_mkdirs(out)
+
+#     # tags
+#     if csv_tags:
+#         tags = [t.strip() for t in (csv_tags.split(",") if ',' in csv_tags else csv_tags.split()) if t.strip()]
+#         log_print(f"[INFO] Tags CSV pour {folder_name}: {tags}")
+#     else:
+#         tags = [t.strip() for t in (args.get("tags") or "").split(",")] if args.get("tags") else infer_tags_from_path(src, root)
+#     if not tags:
+#         tags = [folder_name] if folder_name else []
+
+#     rating = "5"
+
+#     # Skip إن كان كاين وممنوع overwrite
+#     if out.exists() and not args.get("overwrite"):
+#         log_print(f"[SKIP] Existe déjà (image): {out}")
+#         return
+
+#     log_print(f"[IMG] {src} -> {out} | Titre: '{title}' | Rating: {rating} | Tags: {tags}")
+
+#     try:
+#         # HEIC -> JPG، وإلا JPG أصلاً: ننسخو مع إعادة التسمية
+#         if src.suffix.lower() == ".heic":
+#             convert_heic_to_jpg(src, out, quality=100)  # قدّر تغيّر لـ100
+#         else:
+#             # JPG/JPEG
+#             if src.resolve() != out.resolve():
+#                 shutil.copy2(src, out)
+
+#         # ExifTool: امسح metadata وكتب Title/Tags/Rating (+Xtra)
+#         et_cmd = build_exiftool_cmd_for_image(
+#             out_path=out,
+#             title=title,
+#             tags=tags,
+#             rating=rating
+#         )
+#         log_print(f"[INFO] ExifTool IMG cmd: {' '.join(shlex.quote(c) for c in et_cmd)}")
+#         try:
+#             res = subprocess.run(et_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+#             log_print("[OK] ExifTool IMG: " + (res.stdout.strip() or "métadonnées écrites."))
+#         except Exception as e:
+#             log_print(f"[WARN] ExifTool IMG a échoué: {e}")
+
+#         try: os.utime(out, None)
+#         except Exception: pass
+
+#     except Exception as e:
+#         log_print(f"[ERROR] Image: {e}")
+
+# process one for image
 def process_image_one(src: Path, dst_root: Path, root: Path, args, log_print):
     rel = src.relative_to(root)
 
@@ -1168,9 +1253,9 @@ class App(tk.Tk):
         self.keep_meta = tk.BooleanVar(value=False)
         self.overwrite = tk.BooleanVar(value=False)
         self.dry_run = tk.BooleanVar(value=False)
-        self.process_images = tk.BooleanVar(value=True)
+        self.process_images = tk.BooleanVar(value=False)
 
-        ttk.Checkbutton(toggles, text="Traiter les images (HEIC/JPG)", variable=self.process_images).pack(side="left", padx=6)
+        # ttk.Checkbutton(toggles, text="Traiter les images (HEIC/JPG)", variable=self.process_images).pack(side="left", padx=6)
         # ttk.Checkbutton(toggles, text="Conserver les métadonnées", variable=self.keep_meta).pack(side="left", padx=6)
         # ttk.Checkbutton(toggles, text="Écraser", variable=self.overwrite).pack(side="left", padx=6)
         # ttk.Checkbutton(toggles, text="Simulation", variable=self.dry_run).pack(side="left", padx=6)
@@ -1291,9 +1376,9 @@ class BatchProcessorFrame(ttk.Frame):
         self.keep_meta = tk.BooleanVar(value=False)
         self.overwrite = tk.BooleanVar(value=False)
         self.dry_run = tk.BooleanVar(value=False)
-        self.process_images = tk.BooleanVar(value=True)
+        self.process_images = tk.BooleanVar(value=False)
 
-        ttk.Checkbutton(toggles, text="Traiter les images (HEIC/JPG)", variable=self.process_images).pack(side="left", padx=6)
+        # ttk.Checkbutton(toggles, text="Traiter les images (HEIC/JPG)", variable=self.process_images).pack(side="left", padx=6)
 
         runbar = ttk.Frame(self)
         runbar.pack(fill="x", padx=10, pady=4)
