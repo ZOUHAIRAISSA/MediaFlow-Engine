@@ -413,6 +413,22 @@ class ModernGoogleDriveApp(tk.Tk):
         
         # Onglet 1: Visualisation des données
         self.create_data_tab()
+
+        # Onglet Dashboard (module séparé)
+        try:
+            from dashboard_tab import DashboardTab
+            self.dashboard_tab = DashboardTab(
+                self.notebook,
+                sheets_manager=self.sheets_manager,
+                update_status_callback=self.update_status,
+                stock_worksheet_name="stock Etsy Listing",
+                drive_manager=self.drive_manager,
+            )
+            self.notebook.add(self.dashboard_tab, text="📈 Dashboard")
+        except Exception as e:
+            placeholder = ttk.Frame(self.notebook, style='Modern.TFrame')
+            self.notebook.add(placeholder, text="📈 Dashboard")
+            ttk.Label(placeholder, text=f"Erreur chargement Dashboard: {e}", style='Modern.TLabel').pack(padx=12, pady=12)
         
         # Onglet 2: Upload des dossiers
         self.create_upload_tab()
@@ -1224,6 +1240,12 @@ class ModernGoogleDriveApp(tk.Tk):
                 
                 # Charger les données
                 self.refresh_data()
+                # Rafraîchir le dashboard (si disponible)
+                try:
+                    if hasattr(self, 'dashboard_tab'):
+                        self.dashboard_tab.refresh_stats()
+                except Exception:
+                    pass
                 
             except Exception as e:
                 self.connection_status.config(text="❌ Erreur de connexion")
