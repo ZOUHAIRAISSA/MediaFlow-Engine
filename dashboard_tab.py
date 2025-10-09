@@ -59,9 +59,26 @@ class DashboardTab(ttk.Frame):
         action_frame.pack(fill='x', padx=12, pady=(0, 8))
 
         ttk.Button(action_frame, text="🔄 Actualiser statistiques", command=self.refresh_stats).pack(side='left')
+        ttk.Button(action_frame, text="☑ Tout sélectionner", style='Warning.TButton', command=self._select_all_visible).pack(side='left', padx=8)
         ttk.Button(action_frame, text="📥 Télécharger dossier origin", style='Warning.TButton', command=self._download_selected_origin).pack(side='left', padx=8)
         ttk.Button(action_frame, text="📥 Télécharger dossier Kyopa", style='Success.TButton', command=self._download_selected_kyopa).pack(side='left')
         ttk.Button(action_frame, text="👁️ Voir tout (stock)", command=self._show_all_embedded).pack(side='right')
+
+        # Zone de recherche (en haut à droite)
+        search_frame = ttk.Frame(action_frame)
+        search_frame.pack(side='right', padx=8)
+        self.search_sku_orig_var = tk.StringVar()
+        self.search_sku_kyopa_var = tk.StringVar()
+        # Ligne de recherche moderne
+        sku_kyopa_entry = ttk.Entry(search_frame, width=22, textvariable=self.search_sku_kyopa_var)
+        sku_kyopa_entry.pack(side='right', padx=(6, 0))
+        ttk.Label(search_frame, text="SKU Kyopa:").pack(side='right')
+        sku_orig_entry = ttk.Entry(search_frame, width=22, textvariable=self.search_sku_orig_var)
+        sku_orig_entry.pack(side='right', padx=(16, 6))
+        ttk.Label(search_frame, text="SKU Origin:").pack(side='right')
+        # Bind
+        sku_orig_entry.bind('<KeyRelease>', self._on_search_change)
+        sku_kyopa_entry.bind('<KeyRelease>', self._on_search_change)
 
         # Tableau intégré (aperçu / résultats)
         self.table_container = ttk.LabelFrame(self, text="Aperçu des données (stock)")
@@ -84,12 +101,16 @@ class DashboardTab(ttk.Frame):
         self._current_table_rows = []
         self._table_inserted_count = 0
         self._table_batch_size = 200
+        # Gestion des cases à cocher
+        self._checked_items = set()  # item_ids cochés
+        self._itemid_to_row_index = {}  # item_id -> index dans _current_table_rows
 
         # Scrolling triggers
         self.table_tree.bind('<MouseWheel>', self._on_mousewheel)
         self.table_tree.bind('<KeyRelease-Up>', self._on_key_nav)
         self.table_tree.bind('<KeyRelease-Down>', self._on_key_nav)
         self.table_tree.bind('<Double-1>', self._on_table_double_click)
+        self.table_tree.bind('<Button-1>', self._on_table_click)
 
     def _create_card(self, parent, title, value_var, color, on_click):
         # Carte colorée (conteneur TK pour gérer le bg)
@@ -194,6 +215,40 @@ class DashboardTab(ttk.Frame):
         self._set_table_dataset(headers, rows, indices, preview=False)
         self.update_status("Filtre appliqué")
 
+    def _on_search_change(self, event=None):
+        # Filtrer par SKU Origin et/ou SKU Kyopa
+        if not self._last_data:
+            return
+        term_orig = self.search_sku_orig_var.get().strip().lower()
+        term_kyopa = self.search_sku_kyopa_var.get().strip().lower()
+        if not term_orig and not term_kyopa:
+            return
+        headers = self._last_data[0]
+        # Trouver colonnes cibles
+        sku_orig_col = None
+        sku_kyopa_col = None
+        for i, h in enumerate(headers):
+            hl = str(h).strip().lower()
+            if sku_orig_col is None and 'sku original' in hl:
+                sku_orig_col = i
+            if sku_kyopa_col is None and 'sku kyopa' in hl:
+                sku_kyopa_col = i
+        rows = []
+        indices = []
+        for idx, row in enumerate(self._last_data[1:], start=2):
+            ok = True
+            if term_orig:
+                val = str(row[sku_orig_col]).lower() if (sku_orig_col is not None and len(row) > sku_orig_col) else ''
+                ok = ok and (term_orig in val)
+            if term_kyopa:
+                val2 = str(row[sku_kyopa_col]).lower() if (sku_kyopa_col is not None and len(row) > sku_kyopa_col) else ''
+                ok = ok and (term_kyopa in val2)
+            if ok:
+                rows.append(row)
+                indices.append(idx)
+        self._set_table_dataset(headers, rows, indices, preview=False)
+        self.update_status(f"Recherche: {len(rows)} résultat(s)")
+
     def _show_all_embedded(self):
         """Afficher toutes les lignes (lazy loading) dans le tableau intégré."""
         def worker():
@@ -217,9 +272,16 @@ class DashboardTab(ttk.Frame):
     # ========= Table helpers (embedded with lazy loading) =========
     def _configure_table_headers(self, headers):
         self.table_tree.delete(*self.table_tree.get_children())
-        self.table_tree['columns'] = list(range(len(headers)))
+        # Ajouter une colonne de sélection en première position
+        total_cols = len(headers) + 1
+        self.table_tree['columns'] = list(range(total_cols))
         self.table_tree['show'] = 'headings'
-        for i, h in enumerate(headers):
+        # Colonne 0: sélection
+        # Entête fixe pour la colonne de sélection (pas de toggle dans l'entête)
+        self.table_tree.heading(0, text='✔')
+        self.table_tree.column(0, width=40, minwidth=40, anchor='center')
+        # Autres colonnes
+        for i, h in enumerate(headers, start=1):
             self.table_tree.heading(i, text=str(h))
             self.table_tree.column(i, width=160, minwidth=120, anchor='w')
 
@@ -229,6 +291,8 @@ class DashboardTab(ttk.Frame):
         self._current_row_indices = row_indices or []
         self._table_inserted_count = 0
         self._table_batch_size = 10 if preview else 200
+        self._checked_items.clear()
+        self._itemid_to_row_index.clear()
         self._configure_table_headers(self._current_table_headers)
         self._insert_next_batch()
 
@@ -238,9 +302,11 @@ class DashboardTab(ttk.Frame):
         start = self._table_inserted_count
         end = min(start + self._table_batch_size, len(self._current_table_rows))
         headers_len = len(self._current_table_headers)
-        for row in self._current_table_rows[start:end]:
+        for idx, row in enumerate(self._current_table_rows[start:end], start=start):
             padded = row + [''] * (headers_len - len(row))
-            self.table_tree.insert('', 'end', values=padded)
+            # Insérer avec colonne de sélection en tête (☐/☑)
+            item_id = self.table_tree.insert('', 'end', values=("☐", *padded))
+            self._itemid_to_row_index[item_id] = idx
         self._table_inserted_count = end
 
     def _maybe_load_more(self):
@@ -261,22 +327,74 @@ class DashboardTab(ttk.Frame):
     def _on_key_nav(self, event):
         self.after(10, self._maybe_load_more)
 
+    # ========= Sélection par case à cocher =========
+    def _on_table_click(self, event):
+        # Déterminer si clic sur la colonne de sélection
+        region = self.table_tree.identify('region', event.x, event.y)
+        if region != 'cell':
+            return
+        col = self.table_tree.identify_column(event.x)
+        # '#1' correspond à la première colonne affichée (index 0)
+        if col != '#1':
+            return
+        row_id = self.table_tree.identify_row(event.y)
+        if not row_id:
+            return
+        # Basculer l'état
+        current_values = list(self.table_tree.item(row_id, 'values'))
+        if not current_values:
+            return
+        if current_values[0] == '☐':
+            current_values[0] = '☑'
+            self._checked_items.add(row_id)
+        else:
+            current_values[0] = '☐'
+            if row_id in self._checked_items:
+                self._checked_items.remove(row_id)
+        self.table_tree.item(row_id, values=tuple(current_values))
+
+    def _on_toggle_select_all(self, check):
+        # Basculer toutes les lignes visibles (depuis bouton)
+        for row_id in self.table_tree.get_children(''):
+            vals = list(self.table_tree.item(row_id, 'values'))
+            if not vals:
+                continue
+            vals[0] = '☑' if check else '☐'
+            self.table_tree.item(row_id, values=tuple(vals))
+            if check:
+                self._checked_items.add(row_id)
+            else:
+                self._checked_items.discard(row_id)
+
+    def _select_all_visible(self):
+        # Si au moins une non cochée existe, cocher tout; sinon tout décocher
+        child_ids = self.table_tree.get_children('')
+        any_unchecked = False
+        for rid in child_ids:
+            vals = list(self.table_tree.item(rid, 'values'))
+            if not vals or vals[0] != '☑':
+                any_unchecked = True
+                break
+        self._on_toggle_select_all(any_unchecked)
+
     # ========= Row details & editing =========
     def _on_table_double_click(self, event=None):
         selection = self.table_tree.selection()
         if not selection:
             return
         item_id = selection[0]
-        values = self.table_tree.item(item_id, 'values')
-        if not values:
+        # Utiliser la donnée source plutôt que les valeurs du Treeview (qui contiennent la case de sélection)
+        idx = self._itemid_to_row_index.get(item_id)
+        if idx is None or idx >= len(self._current_table_rows):
             return
-        # Determine index in current table
+        row_values = list(self._current_table_rows[idx])
+        # Déterminer le numéro de ligne dans la feuille
         index_in_table = self.table_tree.index(item_id)
         if index_in_table >= len(self._current_row_indices):
             return
         sheet_row_number = self._current_row_indices[index_in_table]
         headers = self._current_table_headers
-        self._open_edit_window(headers, list(values), sheet_row_number)
+        self._open_edit_window(headers, row_values, sheet_row_number)
 
     def _open_edit_window(self, headers, row_values, sheet_row_number):
         win = tk.Toplevel(self)
@@ -294,7 +412,9 @@ class DashboardTab(ttk.Frame):
         canvas.configure(yscrollcommand=vsb.set)
 
         entries = []
-        for i, (h, v) in enumerate(zip(headers, row_values)):
+        # Toujours parcourir toutes les colonnes d'en-tête; si valeur manquante, afficher vide
+        for i, h in enumerate(headers):
+            v = row_values[i] if i < len(row_values) else ""
             rowf = ttk.Frame(inner)
             rowf.pack(fill='x', padx=6, pady=4)
             ttk.Label(rowf, text=str(h), width=24).pack(side='left')
@@ -380,40 +500,90 @@ class DashboardTab(ttk.Frame):
             if not self.drive_manager:
                 messagebox.showerror("Erreur", "Drive manager non disponible")
                 return
-            selection = self.table_tree.selection()
-            if not selection:
-                messagebox.showwarning("Attention", "Veuillez sélectionner une ligne dans le tableau")
-                return
-            item_id = selection[0]
-            index_in_table = self.table_tree.index(item_id)
-            if index_in_table >= len(self._current_table_rows):
-                return
-            headers = [str(h).strip().lower() for h in self._current_table_headers]
-            row = list(self._current_table_rows[index_in_table])
-
-            # Trouver colonnes
-            origin_col = self._find_header(headers, ["drive origin url", "origin url", "drive folder url"])  # fallback
-            kyopa_col = self._find_header(headers, ["kyopa dossiers link", "kyopa folder url", "drive folder url kyopa", "kyopa url", "kyopa link"])
-
-            target_col = kyopa_col if using_kyopa else origin_col
-            if target_col is None:
-                messagebox.showwarning("Attention", "Colonne URL introuvable pour ce téléchargement")
-                return
-
-            url = str(row[target_col]).strip() if target_col < len(row) else ""
-            if not url:
-                messagebox.showwarning("Attention", "URL vide dans la ligne sélectionnée")
+            # Construire la liste des lignes cochées; si aucune, se rabattre sur la sélection courante
+            item_ids = list(self._checked_items)
+            if not item_ids:
+                item_ids = list(self.table_tree.selection())
+            if not item_ids:
+                messagebox.showwarning("Attention", "Veuillez cocher ou sélectionner au moins une ligne")
                 return
 
             dest = filedialog.askdirectory(title="Choisir le dossier de téléchargement")
             if not dest:
                 return
 
+            headers_lower = [str(h).strip().lower() for h in self._current_table_headers]
+            origin_col = self._find_header(headers_lower, ["drive origin url", "origin url", "drive folder url"])  # fallback
+            kyopa_col = self._find_header(headers_lower, ["kyopa dossiers link", "kyopa folder url", "drive folder url kyopa", "kyopa url", "kyopa link"])
+            target_col = kyopa_col if using_kyopa else origin_col
+            if target_col is None:
+                messagebox.showwarning("Attention", "Colonne URL introuvable pour ce téléchargement")
+                return
+
+            # Afficher une modale de chargement
+            loader = tk.Toplevel(self)
+            loader.title("Téléchargement")
+            loader.geometry("420x160")
+            loader.transient(self.winfo_toplevel())
+            loader.grab_set()
+            # Centrer sur l'écran
+            loader.update_idletasks()
+            sw = loader.winfo_screenwidth()
+            sh = loader.winfo_screenheight()
+            ww = 420
+            wh = 160
+            x = (sw // 2) - (ww // 2)
+            y = (sh // 2) - (wh // 2)
+            loader.geometry(f"{ww}x{wh}+{x}+{y}")
+            ttk.Label(loader, text="Téléchargement en cours...").pack(pady=(16, 6))
+            percent_var = tk.StringVar(value="0%")
+            percent_lbl = ttk.Label(loader, textvariable=percent_var)
+            percent_lbl.pack(pady=(0, 4))
+            pb = ttk.Progressbar(loader, mode='determinate', maximum=100)
+            pb.pack(fill='x', padx=16, pady=(0, 12))
+
             self.update_status("Téléchargement en cours...")
-            ok = self.drive_manager.download_folder_by_url(url, Path(dest), lambda m: None)
-            if ok:
-                self.update_status("Téléchargement terminé")
-                messagebox.showinfo("Succès", "Téléchargement terminé")
+
+            def worker():
+                success = 0
+                total = 0
+                # Calculer le total des éléments à traiter
+                total = sum(1 for row_id in item_ids if self._itemid_to_row_index.get(row_id) is not None)
+                progressed = 0
+                for row_id in item_ids:
+                    idx = self._itemid_to_row_index.get(row_id)
+                    if idx is None or idx >= len(self._current_table_rows):
+                        continue
+                    row = list(self._current_table_rows[idx])
+                    url = str(row[target_col]).strip() if target_col < len(row) else ""
+                    if not url:
+                        # Même si pas d'URL, avancer la barre pour ne pas rester bloqué
+                        progressed += 1
+                        self.after(0, lambda p=progressed, t=total: (pb.config(value=int(p*100/max(1,t))), percent_var.set(f"{int(p*100/max(1,t))}%")))
+                        continue
+                    try:
+                        ok = self.drive_manager.download_folder_by_url(url, Path(dest), lambda m: None)
+                        if ok:
+                            success += 1
+                    except Exception:
+                        pass
+                    progressed += 1
+                    # Mettre à jour la progression (UI thread)
+                    self.after(0, lambda p=progressed, t=total: (pb.config(value=int(p*100/max(1,t))), percent_var.set(f"{int(p*100/max(1,t))}%")))
+                # Close loader on UI thread
+                def done():
+                    try:
+                        pb.stop()
+                        loader.grab_release()
+                        loader.destroy()
+                    except Exception:
+                        pass
+                    self.update_status(f"Téléchargement terminé: {success}/{total}")
+                    if total:
+                        messagebox.showinfo("Terminé", f"Téléchargements réussis: {success}/{total}")
+                self.after(0, done)
+
+            threading.Thread(target=worker, daemon=True).start()
         except Exception as e:
             self.update_status(f"Erreur téléchargement: {e}")
             messagebox.showerror("Erreur", f"Échec du téléchargement: {e}")

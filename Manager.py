@@ -121,7 +121,8 @@ class GoogleSheetsManager:
         try:
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
-                range=f"{worksheet_name}!A:Z"
+                # Étendre la plage au-delà de 26 colonnes (Z) pour couvrir davantage de colonnes
+                range=f"{worksheet_name}!A:ZZZ"
             ).execute()
             
             return result.get('values', [])
@@ -411,10 +412,7 @@ class ModernGoogleDriveApp(tk.Tk):
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill="both", expand=True)
         
-        # Onglet 1: Visualisation des données
-        self.create_data_tab()
-
-        # Onglet Dashboard (module séparé)
+        # Onglet Dashboard (module séparé) - Stock Etsy Listing
         try:
             from dashboard_tab import DashboardTab
             self.dashboard_tab = DashboardTab(
@@ -429,6 +427,22 @@ class ModernGoogleDriveApp(tk.Tk):
             placeholder = ttk.Frame(self.notebook, style='Modern.TFrame')
             self.notebook.add(placeholder, text="📈 Dashboard")
             ttk.Label(placeholder, text=f"Erreur chargement Dashboard: {e}", style='Modern.TLabel').pack(padx=12, pady=12)
+
+        # Onglet Dashboard pour la feuille principale (Etsy Listing Template)
+        try:
+            from dashboard_tab import DashboardTab
+            self.dashboard_template_tab = DashboardTab(
+                self.notebook,
+                sheets_manager=self.sheets_manager,
+                update_status_callback=self.update_status,
+                stock_worksheet_name=WORKSHEET_NAME,
+                drive_manager=self.drive_manager,
+            )
+            self.notebook.add(self.dashboard_template_tab, text="📈 Dashboard Template")
+        except Exception as e:
+            placeholder2 = ttk.Frame(self.notebook, style='Modern.TFrame')
+            self.notebook.add(placeholder2, text="📈 Dashboard Template")
+            ttk.Label(placeholder2, text=f"Erreur chargement Dashboard Template: {e}", style='Modern.TLabel').pack(padx=12, pady=12)
         
         # Onglet 2: Upload des dossiers
         self.create_upload_tab()
@@ -450,62 +464,7 @@ class ModernGoogleDriveApp(tk.Tk):
                                    style='Modern.TLabel', relief='sunken')
         self.status_bar.pack(side='bottom', fill='x', pady=(10, 0))
     
-    def create_data_tab(self):
-        """Créer l'onglet de visualisation des données"""
-        data_frame = ttk.Frame(self.notebook, style='Modern.TFrame')
-        self.notebook.add(data_frame, text="📊 Données Etsy")
-        
-        # Contrôles
-        controls_frame = ttk.Frame(data_frame, style='Modern.TFrame')
-        controls_frame.pack(fill='x', padx=10, pady=10)
-        
-        ttk.Button(controls_frame, text="🔄 Actualiser", 
-                  command=self.refresh_data, style='Modern.TButton').pack(side='left', padx=5)
-        
-        ttk.Button(controls_frame, text="❌ Filtrer Erreurs", 
-                  command=self.filter_errors, style='Warning.TButton').pack(side='left', padx=5)
-        
-        ttk.Button(controls_frame, text="👁️ Tout Afficher", 
-                  command=self.show_all, style='Modern.TButton').pack(side='left', padx=5)
-        
-        # Recherche
-        search_frame = ttk.Frame(controls_frame, style='Modern.TFrame')
-        search_frame.pack(side='right')
-        
-        ttk.Label(search_frame, text="Recherche:", style='Modern.TLabel').pack(side='left')
-        self.search_var = tk.StringVar()
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=20)
-        search_entry.pack(side='left', padx=5)
-        search_entry.bind('<KeyRelease>', self.on_search)
-        
-        # Tableau des données
-        self.create_data_table(data_frame)
     
-    def create_data_table(self, parent):
-        """Créer le tableau des données"""
-        # Frame pour le tableau
-        table_frame = ttk.Frame(parent, style='Modern.TFrame')
-        table_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        
-        # Treeview avec scrollbars
-        self.tree = ttk.Treeview(table_frame, height=20)
-        
-        # Scrollbars
-        v_scrollbar = ttk.Scrollbar(table_frame, orient='vertical', command=self.tree.yview)
-        h_scrollbar = ttk.Scrollbar(table_frame, orient='horizontal', command=self.tree.xview)
-        
-        self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-        
-        # Placement
-        self.tree.grid(row=0, column=0, sticky='nsew')
-        v_scrollbar.grid(row=0, column=1, sticky='ns')
-        h_scrollbar.grid(row=1, column=0, sticky='ew')
-        
-        table_frame.grid_rowconfigure(0, weight=1)
-        table_frame.grid_columnconfigure(0, weight=1)
-        
-        # Bind double-click pour édition
-        self.tree.bind('<Double-1>', self.on_row_double_click)
     
     def create_upload_tab(self):
         """Créer l'onglet d'upload"""
@@ -1238,12 +1197,13 @@ class ModernGoogleDriveApp(tk.Tk):
                 self.connection_status.config(text="✅ Connecté à Google")
                 self.update_status("Prêt - Connecté à Google")
                 
-                # Charger les données
-                self.refresh_data()
-                # Rafraîchir le dashboard (si disponible)
+                # Charger les dashboards (pas de tableau Données Etsy)
+                # Rafraîchir les dashboards (si disponibles)
                 try:
                     if hasattr(self, 'dashboard_tab'):
                         self.dashboard_tab.refresh_stats()
+                    if hasattr(self, 'dashboard_template_tab'):
+                        self.dashboard_template_tab.refresh_stats()
                 except Exception:
                     pass
                 
@@ -1255,201 +1215,7 @@ class ModernGoogleDriveApp(tk.Tk):
         
         threading.Thread(target=connect_worker, daemon=True).start()
     
-    def refresh_data(self):
-        """Actualiser les données du spreadsheet"""
-        def refresh_worker():
-            try:
-                self.update_status("Chargement des données...")
-                
-                # Récupérer les données
-                data = self.sheets_manager.get_worksheet_data(WORKSHEET_NAME)
-                
-                if not data:
-                    self.update_status("Aucune donnée trouvée")
-                    return
-                
-                self.worksheet_data = data
-                self.filtered_data = data.copy()
-                
-                # Mettre à jour l'affichage
-                self.update_table_display()
-                
-                self.update_status(f"✅ {len(data)-1} lignes chargées")
-                
-            except Exception as e:
-                self.update_status(f"Erreur: {e}")
-                messagebox.showerror("Erreur", f"Impossible de charger les données:\n{e}")
-        
-        threading.Thread(target=refresh_worker, daemon=True).start()
-    
-    def update_table_display(self):
-        """Mettre à jour l'affichage du tableau"""
-        if not self.filtered_data:
-            return
-        
-        # Effacer le contenu existant
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        
-        if not self.filtered_data:
-            return
-        
-        # Configuration des colonnes
-        if len(self.filtered_data) > 0:
-            headers = self.filtered_data[0]
-            self.tree['columns'] = list(range(len(headers)))
-            self.tree['show'] = 'headings'
-            
-            # Configuration des en-têtes
-            for i, header in enumerate(headers):
-                self.tree.heading(i, text=header)
-                self.tree.column(i, width=140,minwidth=140, anchor='w')
-            
-            # Ajout des données
-            for row in self.filtered_data[1:]:
-                # Compléter la ligne si nécessaire
-                padded_row = row + [''] * (len(headers) - len(row))
-                self.tree.insert('', 'end', values=padded_row)
-    
-    def filter_errors(self):
-        """Filtrer les lignes avec statut 'erreur'"""
-        if not self.worksheet_data:
-            messagebox.showwarning("Attention", "Aucune donnée chargée")
-            return
-        
-        try:
-            headers = self.worksheet_data[0]
-            # Trouver la colonne Status (insensible à la casse)
-            status_col = None
-            for i, header in enumerate(headers):
-                if 'status' in header.lower():
-                    status_col = i
-                    break
-            
-            if status_col is None:
-                messagebox.showwarning("Attention", "Colonne 'Status' non trouvée")
-                return
-            
-            # Filtrer les lignes
-            self.filtered_data = [headers]
-            for row in self.worksheet_data[1:]:
-                if len(row) > status_col and 'erreur' in str(row[status_col]).lower():
-                    self.filtered_data.append(row)
-            
-            self.update_table_display()
-            self.update_status(f"Filtré: {len(self.filtered_data)-1} lignes avec erreurs")
-            
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Erreur lors du filtrage: {e}")
-    
-    def show_all(self):
-        """Afficher toutes les données"""
-        self.filtered_data = self.worksheet_data.copy()
-        self.update_table_display()
-        self.update_status("Toutes les données affichées")
-    
-    def on_search(self, event=None):
-        """Recherche dans les données"""
-        if not self.worksheet_data:
-            return
-        
-        search_term = self.search_var.get().lower()
-        if not search_term:
-            self.show_all()
-            return
-        
-        headers = self.worksheet_data[0]
-        self.filtered_data = [headers]
-        
-        for row in self.worksheet_data[1:]:
-            # Rechercher dans toutes les colonnes
-            if any(search_term in str(cell).lower() for cell in row):
-                self.filtered_data.append(row)
-        
-        self.update_table_display()
-        self.update_status(f"Recherche: {len(self.filtered_data)-1} résultats")
-    
-    def on_row_double_click(self, event):
-        """Gérer le double-clic sur une ligne"""
-        selection = self.tree.selection()
-        if not selection:
-            return
-        
-        item = self.tree.item(selection[0])
-        values = item['values']
-        
-        if not values:
-            return
-        
-        # Créer une fenêtre de détails
-        self.show_row_details(values)
-    
-    def show_row_details(self, row_values):
-        """Afficher les détails d'une ligne"""
-        if not self.worksheet_data:
-            return
-        
-        headers = self.worksheet_data[0]
-        
-        # Fenêtre de détails
-        detail_window = tk.Toplevel(self)
-        detail_window.title("Détails de l'entrée")
-        detail_window.geometry("600x400")
-        detail_window.configure(bg='#2b2b2b')
-        
-        # Frame principal
-        main_frame = ttk.Frame(detail_window, style='Modern.TFrame')
-        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
-        
-        # Titre
-        ttk.Label(main_frame, text="Détails de l'entrée", 
-                 font=('Arial', 14, 'bold'), style='Modern.TLabel').pack(pady=(0, 20))
-        
-        # Scrollable frame pour les détails
-        canvas = tk.Canvas(main_frame, bg='#2b2b2b')
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style='Modern.TFrame')
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Afficher les données
-        for i, (header, value) in enumerate(zip(headers, row_values)):
-            frame = ttk.Frame(scrollable_frame, style='Modern.TFrame')
-            frame.pack(fill='x', pady=5)
-            
-            ttk.Label(frame, text=f"{header}:", font=('Arial', 10, 'bold'), 
-                     style='Modern.TLabel', width=20).pack(side='left', anchor='n')
-            
-            # Gestion spéciale pour les URLs
-            if 'url' in header.lower() and value:
-                link_frame = ttk.Frame(frame, style='Modern.TFrame')
-                link_frame.pack(side='right', fill='x', expand=True)
-                
-                ttk.Label(link_frame, text=value, style='Modern.TLabel', 
-                         foreground='#4a90e2').pack(side='top', anchor='w')
-                
-                ttk.Button(link_frame, text="Ouvrir", 
-                          command=lambda url=value: webbrowser.open(url),
-                          style='Modern.TButton').pack(side='top', anchor='w', pady=2)
-            else:
-                ttk.Label(frame, text=str(value), style='Modern.TLabel',
-                         wraplength=400).pack(side='right', fill='x', expand=True)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Boutons d'action
-        button_frame = ttk.Frame(detail_window, style='Modern.TFrame')
-        button_frame.pack(fill='x', padx=20, pady=10)
-        
-        ttk.Button(button_frame, text="Fermer", command=detail_window.destroy,
-                  style='Modern.TButton').pack(side='right')
+
     
     def select_drive_folder(self):
         """Sélectionner un dossier Google Drive de destination (sous-dossiers Etsy seulement)"""
