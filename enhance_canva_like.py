@@ -38,7 +38,10 @@ def build_exiftool_cmd_remove_metadata(out_path: Path) -> list[str]:
         exiftool_bin(),
         "-m", "-overwrite_original",
         "-charset", "UTF8", "-charset", "filename=UTF8",
-        "-all=",        # Remove all metadata
+        "-EXIF:all=",
+        "-MakerNotes:all=",
+        "-IFD1:all=",
+        "-ThumbnailImage=",      # Remove all metadata
         "-P"            # Preserve file modification time if possible
     ]
     cmd.append(str(out_path))
@@ -89,7 +92,7 @@ def wb_warm(img, r_gain=1.0, g_gain=1.0, b_gain=1.0):
     b = b.point(lambda x: min(255, int(x * b_gain)))
     return Image.merge("RGB", (r, g, b))
 
-def enhance_image_canva_like(image):
+def enhance_image_canva_like(image,cutoff=0):
     """
     Canva-like natural preset: mild exposure/contrast/color/clarity.
     Values tuned for indoor rug shots.
@@ -98,7 +101,7 @@ def enhance_image_canva_like(image):
     img = image.convert("RGB")
 
     # 2) Autocontrast مع حماية 1% من الأطراف
-    img = ImageOps.autocontrast(img, cutoff=1)
+    img = ImageOps.autocontrast(img, cutoff=cutoff)
 
     # 3) Mid-tone lift (exposure خفيف)
     img = apply_gamma(img, gamma=0.98)  # <1 يرفع المتوسطات شويّة
@@ -114,7 +117,7 @@ def enhance_image_canva_like(image):
 
     return img
 
-def enhance_image_canva_custom(image, brightness=1.03, contrast=1.06, color=1.08, sharpness=1.08, gamma=0.98, r_gain=1.02, g_gain=1.00, b_gain=0.98):
+def enhance_image_canva_custom(image, brightness=1.03, contrast=1.06, color=1.08, sharpness=1.08, gamma=0.98, r_gain=1.02, g_gain=1.00, b_gain=0.98,cutoff=0):
     """
     Canva-like enhancement with customizable parameters.
     Based on enhance_image_canva_like but with adjustable values.
@@ -123,7 +126,7 @@ def enhance_image_canva_custom(image, brightness=1.03, contrast=1.06, color=1.08
     img = image.convert("RGB")
 
     # 2) Autocontrast مع حماية 1% من الأطراف
-    img = ImageOps.autocontrast(img, cutoff=1)
+    img = ImageOps.autocontrast(img, cutoff=cutoff)
 
     # 3) Mid-tone lift (exposure خفيف)
     img = apply_gamma(img, gamma=gamma)  # <1 يرفع المتوسطات شويّة
@@ -328,8 +331,7 @@ def build_exiftool_cmd_set_metadata(out_path: Path, title: str | None, tags: lis
         exiftool_bin(),
         "-m", "-overwrite_original",
         "-charset", "UTF8", "-charset", "filename=UTF8",
-        "-sep", ", ",
-        "-all=",        # Remove all metadata first
+        "-sep", ", ",        # Remove all metadata first
         "-P"            # Preserve file modification time if possible
     ]
     if title:
